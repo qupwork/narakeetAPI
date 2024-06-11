@@ -7,12 +7,22 @@ import cors from 'cors';
 const app = express();
 const PORT = process.env.PORT || 6640;
 
-// Enable CORS for all routes and methods
+const allowedOrigins = ['https://academy.europa.eu', 'http://localhost'];
+
 app.use(cors({
-    origin: '*', // Allow all origins
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
+
+// Handle preflight requests
+app.options('*', cors());
 
 // Middleware to parse JSON bodies
 app.use(express.json());

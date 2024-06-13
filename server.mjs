@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { response } from 'express';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'stream';
 import got from 'got';
@@ -63,6 +63,7 @@ const languageVoiceMap = {
     // 'language_code': 'voice_name'
 };
 
+app.get('/', async (req, res) => {return res.send('Hello World!')});
 app.post('/synthesize', async (req, res) => {
     console.log('Request body:', req.body);
 

@@ -7,22 +7,23 @@ import cors from 'cors';
 const app = express();
 const PORT = process.env.PORT || 6640;
 
-const allowedOrigins = ['https://academy.europa.eu', 'http://localhost'];
-
 app.use(cors({
-    origin: function (origin, callback) {
-        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
+    origin: true, // Allow all origins
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    credentials: true,
+    optionsSuccessStatus: 204 // Some legacy browsers (IE11, various SmartTVs) choke on 204
 }));
 
-// Handle preflight requests
-app.options('*', cors());
+
+// Handle preflight requests for all routes
+app.options('*', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.sendStatus(204);
+});
 
 // Middleware to parse JSON bodies
 app.use(express.json());

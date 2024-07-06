@@ -1,4 +1,4 @@
-import express, { response } from 'express';
+import express from 'express';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'stream';
 import got from 'got';
@@ -8,13 +8,12 @@ const app = express();
 const PORT = process.env.PORT || 6640;
 
 app.use(cors({
-    origin: true, // Allow all origins
+    origin: 'https://academy.europa.eu', // Specify your exact domain
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
     credentials: true,
-    optionsSuccessStatus: 204 // Some legacy browsers (IE11, various SmartTVs) choke on 204
+    optionsSuccessStatus: 204
 }));
-
 
 // Handle preflight requests for all routes
 app.options('*', (req, res) => {
@@ -57,13 +56,13 @@ const languageVoiceMap = {
     'SL': 'Mojca',
     'SV': 'Hedvig',
     'SR': 'Milica',
-    'TR': 'Leyla',
-
-    // Add other language-voice mappings here...
-    // 'language_code': 'voice_name'
+    'TR': 'Leyla'
 };
 
-app.get('/', async (req, res) => {return res.send('Hello World!')});
+app.get('/', async (req, res) => {
+    return res.send('Hello World!');
+});
+
 app.post('/synthesize', async (req, res) => {
     console.log('Request body:', req.body);
 

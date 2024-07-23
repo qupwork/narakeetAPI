@@ -1,31 +1,10 @@
-import express from 'express';
-import { pipeline } from 'node:stream/promises';
-import { Readable } from 'stream';
-import got from 'got';
-import cors from 'cors';
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import https from 'https';
 
-const app = express();
-const PORT = process.env.PORT || 6640;
-
-app.use(cors({
-    origin: 'https://academy.europa.eu', // Specify your exact domain
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    credentials: true,
-    optionsSuccessStatus: 204
-}));
-
-// Handle preflight requests for all routes
-app.options('*', (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.sendStatus(204);
+// Configure AWS SDK
+const s3Client = new S3Client({
+    region: 'eu-central-1'
 });
-
-// Middleware to parse JSON bodies
-app.use(express.json());
 
 const languageVoiceMap = {
     'EN': 'Bronagh',
@@ -56,53 +35,120 @@ const languageVoiceMap = {
     'SL': 'Mojca',
     'SV': 'Hedvig',
     'SR': 'Milica',
-    'TR': 'Leyla'
+    'TR': 'Leyla',
 };
 
-app.get('/', async (req, res) => {
-    return res.send('Hello World!');
-});
+const APIKEY = 'TK4jrT4FMk8pPXG3hhLgw4tRIOsHjcQn88R6MId0';
 
-app.post('/synthesize', async (req, res) => {
-    console.log('Request body:', req.body);
-
-    const { text, targetLanguage } = req.body;
-
-    if (!text || !targetLanguage) {
-        return res.status(400).json({ error: 'Text and targetLanguage are required' });
-    }
+const handler = async (event, context) => {
+    const text = event['queryStringParameters']['text'];
+    const targetLanguage = event['queryStringParameters']['targetLanguage'];
 
     const voice = languageVoiceMap[targetLanguage.toUpperCase()];
 
     if (!voice) {
-        return res.status(400).json({ error: 'Unsupported language' });
+        return {
+            statusCode: 400,
+            headers: { 'Content-Type': 'application/json' },
+            body: { error: 'Unsupported language' }
+        };
     }
 
-    const APIKEY = 'TK4jrT4FMk8pPXG3hhLgw4tRIOsHjcQn88R6MId0';
+    const commandGet = new GetObjectCommand({
+        Bucket: 'narakeet',
+        Key: `audio/${targetLanguage.toUpperCase()}/${text}.m4a`,
+    });
 
     try {
-        res.setHeader('Content-Type', 'audio/m4a');
+        const response = await s3Client.send(commandGet);
+        // The Body object also has 'transformToByteArray' and 'transformToWebStream' methods.
+        const data = await response.Body.transformToByteArray();
+        const buffer = Buffer.from(data).toString("base64");
 
-        await pipeline(
-            Readable.from([text]),
-            got.stream.post(
-                `https://api.narakeet.com/text-to-speech/m4a?voice=${voice}`,
-                {
-                    headers: {
-                        'accept': 'application/octet-stream',
-                        'x-api-key': APIKEY,
-                        'content-type': 'text/plain'
-                    }
-                }
-            ),
-            res
-        );
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Internal Server Error' });
+        return {
+            statusCode: 200,
+            headers: { 'Content-Type': 'audio/x-m4a' },
+            body: buffer,
+            isBase64Encoded: true
+        };
+    } catch (err) {
+        /* Handle */
+        /*
+        return {
+            statusCode: 500,
+            headers: { 'Content-Type': 'application/text' },
+            body: err.toString()
+        };
+        */
     }
-});
 
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+    const options = {
+        hostname: 'api.narakeet.com',
+        path: `/text-to-speech/m4a?voice=${voice}`,
+        method: 'POST',
+        headers: {
+            'accept': 'application/octet-stream',
+            'x-api-key': APIKEY,
+            'content-type': 'text/plain',
+        },
+    };
+
+    const httpRequest = (options, text) => {
+        return new Promise((resolve, reject) => {
+            const req = https.request(options, (res) => {
+                if (res.statusCode < 200 || res.statusCode >= 300) {
+                    return reject(new Error('statusCode=' + res.statusCode));
+                }
+                const data = [];
+                res.on('data', (chunk) => data.push(chunk));
+                res.on('end', () => resolve(Buffer.concat(data)));
+            });
+            req.on('error', (err) => reject(err));
+            req.write(text);
+            req.end();
+        });
+    };
+
+    const audioStream = await httpRequest(options, text);
+
+    const uploadParams = {
+        Bucket: 'narakeet',
+        Key: `audio/${targetLanguage.toUpperCase()}/${text}.m4a`, // Generate unique key for each file
+        Body: audioStream,
+        ContentType: 'audio/m4a'
+    };
+
+    const command = new PutObjectCommand(uploadParams);
+
+    try {
+        await s3Client.send(command);
+    } catch(err){
+        return {
+            statusCode: 500,
+            headers: { 'Content-Type': 'application/text' },
+            body: err.toString()
+        };
+    }
+
+    try {
+        const response = await s3Client.send(commandGet);
+        // The Body object also has 'transformToByteArray' and 'transformToWebStream' methods.
+        const data = await response.Body.transformToByteArray();
+        const buffer = Buffer.from(data).toString("base64");
+
+        return {
+            statusCode: 200,
+            headers: { 'Content-Type': 'audio/x-m4a' },
+            body: buffer,
+            isBase64Encoded: true
+        };
+    } catch (err) {
+        return {
+            statusCode: 500,
+            headers: { 'Content-Type': 'application/text' },
+            body: err.toString()
+        };
+    }
+};
+
+export { handler };
